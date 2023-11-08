@@ -5,9 +5,6 @@ import types
 import datetime
 from cryptography.fernet import Fernet
 
-key = b'gQzJC7mbOjXUpriRogVnoaCqGh6-uQZC2dzjh6EjHEI='
-cipher_suite = Fernet(key)
-
 sel = selectors.DefaultSelector()
 
 def get_server_ip():
@@ -35,6 +32,7 @@ def start_connection(server_ip, port):
         zero_count=0,
         one_count=0,
         outb=b"",
+        key=None,  # Add a key field to store the received key
     )
     sel.register(sock, events, data=data)
 
@@ -43,23 +41,30 @@ def service_connection(key, mask):
     data = key.data
 
     if mask & selectors.EVENT_READ:
-        recv_data = sock.recv(1024)
-        if recv_data:
-            print(f"Received {recv_data} from connection {data.connid}")
-            #can comment out the above line as it shows encrypted data
-            decrypted_data = cipher_suite.decrypt(recv_data)  # Decrypt received data
-            print(f"Received (decrypted) from connection {data.connid}: {decrypted_data.decode()}")
-           
-            data.recv_total += len(decrypted_data)
-            data.zero_count += decrypted_data.count(b'0')
-            data.one_count += decrypted_data.count(b'1')
-            if decrypted_data.strip() == b"end":
+        if data.key is None:  # If the key is not received yet
+            recv_key = sock.recv(1024)
+            if recv_key:
+                data.key = recv_key
+                data.cipher_suite = Fernet(data.key)
                 timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                print(f"[{timestamp}] Closing connection {data.connid}")
-                print(f"Total 0s received: {data.zero_count}")
-                print(f"Total 1s received: {data.one_count}")
-                sel.unregister(sock)
-                sock.close()
+                print(f"[{timestamp}] Received and set the key")
+
+        else:  # If the key is received, proceed with data decryption
+            recv_data = sock.recv(1024)
+            if recv_data:
+                print(f"Received data from connection {data.connid}: {recv_data}")
+                decrypted_data = data.cipher_suite.decrypt(recv_data)  # Decrypt received data
+                print(f"Received (decrypted) from connection {data.connid}: {decrypted_data.decode()}")
+                data.recv_total += len(decrypted_data)
+                data.zero_count += decrypted_data.count(b'0')
+                data.one_count += decrypted_data.count(b'1')
+                if decrypted_data.strip() == b"end":
+                    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    print(f"[{timestamp}] Closing connection {data.connid}")
+                    print(f"Total 0s received: {data.zero_count}")
+                    print(f"Total 1s received: {data.one_count}")
+                    sel.unregister(sock)
+                    sock.close()
 
     if mask & selectors.EVENT_WRITE:
         pass  # No data to send in this scenario
