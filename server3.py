@@ -5,10 +5,6 @@ import types
 import datetime
 from cryptography.fernet import Fernet
 
-key = Fernet.generate_key()
-cipher_suite = Fernet(key)
-print("URL-safe base64-encoded key:", key.decode())
-
 sel = selectors.DefaultSelector()
 
 host, port = '127.0.0.1', 12346
@@ -30,6 +26,7 @@ def accept_wrapper(sock):
         print(f"[{timestamp}] Rejecting connection from {addr} - Maximum clients reached")
         conn.close()
         return
+        
     if addr[0] in connected_clients:
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         print(f"[{timestamp}] Rejecting connection from {addr} - Client already connected from this IP")
@@ -37,14 +34,18 @@ def accept_wrapper(sock):
         return
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"[{timestamp}] Accepted connection from {addr}")
+    key = Fernet.generate_key()
+    cipher_suite = Fernet(key)
+    print("URL-safe base64-encoded key:", key.decode())
+    conn.send(key)
     conn.setblocking(False)
     data = types.SimpleNamespace(addr=addr, inb=b"", outb=b"")
     events = selectors.EVENT_READ | selectors.EVENT_WRITE
     sel.register(conn, events, data=data)
     connected_clients.add(addr[0])
-    handle_user_input(conn, addr)
+    handle_user_input(conn, addr,cipher_suite)
 
-def handle_user_input(conn, addr):
+def handle_user_input(conn, addr, cipher_suite):
     while True:
         user_input = input("Enter 0 or 1 or 'end' to terminate: ")
         if user_input not in ('0', '1', 'end'):
